@@ -1,32 +1,54 @@
+
+
 import ErrorHandler from "../error/error.js";
 import { Reservation } from "../models/reservationScheme.js";
+import { transporter, generateEmailTemplate } from "../utils/emailConfig.js";
 
 export const sendReservation = async (req, res, next) => {
-  console.log("request.body =====", req.body);
+    try {
+        const { pickup, drop, date, serviceType, vehicle, name, email, mobile } = req.body;
+        console.log("Received data:", req.body);
 
-  const { name, email, phone, date, serviceType } = req.body;
-  
-  if (!name || !email || !phone || !date|| !serviceType) {
-    return next(new ErrorHandler("Please fill the full reservation form!", 400));
-  }
+        if (!pickup || !drop || !date || !serviceType || !vehicle || !name || !email || !mobile) {
+            return next(new ErrorHandler("All fields are required", 400));
+        }
 
-  try {
-    const newReservation = await Reservation.create({ name, email, phone, date, serviceType});
-    
-    console.log("Saved reservation:", newReservation); // Debugging log
-    newReservation.save();
-    res.status(200).json({
-      success: true,
-      message: "Reservation sent successfully!",
-    });
-  } catch (error) {
-    console.error("Database Error:", error);
+        const reservation = new Reservation({
+            pickup,
+            drop,
+            date,
+            serviceType,
+            vehicle,
+            name,
+            email,
+            mobile
+        });
 
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => err.message);
-      return next(new ErrorHandler(validationErrors.join(" , "), 400));
+        await reservation.save();
+
+        try {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'MoveIt - Reservation Confirmation',
+                html: generateEmailTemplate(reservation)
+            };
+
+            await transporter.sendMail(mailOptions);
+            console.log('Confirmation email sent successfully');
+        } catch (emailError) {
+            console.error('Error sending confirmation email:', emailError);
+            // Don't throw error, continue with response
+        }
+
+        res.status(201).json({
+            success: true,
+            message: "Reservation created successfully",
+            data: reservation
+        });
+
+    } catch (error) {
+        console.error("Server error:", error);
+        return next(new ErrorHandler(error.message, 500));
     }
-
-    return next(error);
-  }
 };
